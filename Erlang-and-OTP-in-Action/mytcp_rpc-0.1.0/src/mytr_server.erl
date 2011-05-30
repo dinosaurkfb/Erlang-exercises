@@ -15,7 +15,7 @@
 -export([start_link/1, get_count/0, start/0, stop/0]).
 
 %% Debug
--export([do_rpc/1]).
+%%-export([do_rpc/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -153,7 +153,7 @@ handle_info(timeout, State) ->
     {noreply, State};
 handle_info({tcp, Socket, Data}, State) ->
     io:format("Socket:~p recved:~p~n", [Socket, Data]),
-    do_rpc(Data),
+    do_rpc(Socket, Data),
     %gen_tcp:send(Socket, Data ++ "recved!"),
     {noreply, State}.
 
@@ -188,17 +188,36 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%--------------------------------------------------------------------
 %% @doc Do the real RPC work.
-%% @spec do_rpc(Data) -> {ok}
+%% @spec do_rpc(Socket, Data) -> {ok}
 %% where
 %%  Data = string()
 %% @end
 %%--------------------------------------------------------------------
-do_rpc(Data) ->
-    Data1 = re:replace(Data, "\r\n", ""),
-    io:format("do_rpc:Data1:~p~n", [Data1]),
-    Data2 = re:replace(Data, "\r\n", "", [{return, list}]),
-    io:format("do_rpc:Data2:~p~n", [Data2]),
-    {match, Captured} = re:run(Data1, "(.*):(.*)\s*\\((.*)\\)\.$",
-				[{capture, [1,2,3], list}, ungreedy]),
-    io:format("do_rpc:Captured:~p~n", [Captured]).
+do_rpc(Socket, RawData) ->
+    try
+        {M, F, A} = split_out_mfa(RawData),
+        Result = apply(M, F, A),
+        gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Result]))
+    catch
+        _Class:Err ->
+            gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))
+    end.
 
+split_out_mfa(RawData) ->
+    MFA = re:replace(RawData, "\r\n$", "", [{return, list}]),
+    {match, [M, F, A]} =
+        re:run(MFA,
+               "(.*):(.*)\s*\\((.*)\s*\\)\s*.\s*$",
+                   [{capture, [1,2,3], list}, ungreedy]),
+    {list_to_atom(M), list_to_atom(F), args_to_terms(A)}.
+
+args_to_terms(RawArgs) ->
+    {ok, Toks, _Line} = erl_scan:string("[" ++ RawArgs ++ "]. ", 1),
+    {ok, Args} = erl_parse:parse_term(Toks),
+    Args.
+
+
+%% test
+
+start_test() ->
+    {ok, _} = tr_server:start_link(1055).
