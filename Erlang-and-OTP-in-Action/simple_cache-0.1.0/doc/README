@@ -1,0 +1,3 @@
+The doc directory contains the documents generated from EDoc, so leave it
+empty and do not commit any thing from here. This README file ensures the 
+doc directory is not empty, therefore git will track it.
