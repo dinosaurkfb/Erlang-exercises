@@ -12,6 +12,7 @@
 	 init/0, 
 	 insert/2, 
 	 lookup/1,
+	 lookup/2,
 	 delete/1
 	]).
 
@@ -45,6 +46,17 @@ lookup(Key) ->
 	[{Key, Pid}] -> {ok, Pid};
 	[] -> {error, not_found}
     end.
+%%--------------------------------------------------------------------
+%% @doc Lookup a {key, pid} pair in which pid = Pid, and return the 
+%% value of pid.
+%% @spec lookup(Key) -> {ok, Pid} | {error, not_found}
+%% @end
+%%--------------------------------------------------------------------
+lookup(pid, Pid) ->
+    case ets:match(?TABLE_ID, {'$1', Pid}) of
+	[Key] -> {ok, Key};
+	[] -> {error, not_found}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc Delete a {key, pid} pair in which pid = Pid
@@ -53,5 +65,4 @@ lookup(Key) ->
 %%--------------------------------------------------------------------
 delete(Pid) ->
     ets:match_delete(?TABLE_ID, {'_', Pid}).
-	    
-    
+

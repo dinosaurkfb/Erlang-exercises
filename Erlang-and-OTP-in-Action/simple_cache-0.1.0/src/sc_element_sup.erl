@@ -4,14 +4,14 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created :  2 Jun 2011 by Kong Fanbin <kfbuniversity@gmail.com>
+%%% Created : 31 May 2011 by Kong Fanbin <kfbuniversity@gmail.com>
 %%%-------------------------------------------------------------------
--module(sc_sup).
+-module(sc_element_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/0, start_child/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -32,6 +32,16 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
+%%--------------------------------------------------------------------
+%% @doc Starts a child process
+%% @spec start_child(Value, LeaseTime) -> {ok, Child} |
+%%                                        {ok, Child, Info} |
+%%                                        {error, Reason}
+%% @end
+%%--------------------------------------------------------------------
+start_child(Value, LeaseTime) ->
+    supervisor:start_child(?SERVER, [Value, LeaseTime]).
+
 %%%===================================================================
 %%% Supervisor callbacks
 %%%===================================================================
@@ -50,14 +60,20 @@ start_link() ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-    ElementSup = {sc_element_sup, {sc_element_sup, start_link, []},
-                  permanent, 2000, supervisor, [sc_element]},
-    EventManager = {sc_event, {sc_event, start_link, []},    
-			permanent, 2000, worker, [sc_event]},
-    Children = [ElementSup, EventManager],
-    RestartStrategy = {one_for_one, 4, 3600},
-         
-    {ok, {RestartStrategy, Children}}.
+    RestartStrategy = simple_one_for_one,
+    MaxRestarts = 0,
+    MaxSecondsBetweenRestarts = 1,
+
+    SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
+
+    Restart = temporary,
+    Shutdown = brutal_kill,
+    Type = worker,
+
+    AChild = {'sc_element', {'sc_element', start_link, []},
+	      Restart, Shutdown, Type, ['sc_element']},
+
+    {ok, {SupFlags, [AChild]}}.
 
 %%%===================================================================
 %%% Internal functions
