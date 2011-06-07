@@ -1,4 +1,3 @@
-
 {application, simple_cache,
  [{description, "My simple cache for Erlang and OTP in action"},
   {vsn, "0.3.0"},
@@ -12,7 +11,8 @@
 	     sc_event_logger
 	     ]},
   {registered, [sc_sup, sc_element_sup]},
-  {application, [kernel, sasl, stdlib, mnesia, resource_discovery]},
-  {mod, {sc_app, []}}
+  {applications, [kernel, sasl, stdlib, mnesia, resource_discovery]},
+  {mod, {sc_app, []}},
+  {start_phases, []}
 ]}.
 

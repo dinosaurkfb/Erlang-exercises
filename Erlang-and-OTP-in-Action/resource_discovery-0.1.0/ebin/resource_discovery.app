@@ -6,7 +6,8 @@
 	     rd_watch
 	     ]},
   {registered, [rd_sup]},
-  {application, [kernel, stdlib]},
-  {mod, {rd_app, []}}
+  {applications, [kernel, stdlib]},
+  {mod, {rd_app, []}},
+  {start_phases, []}
 ]}.
 
