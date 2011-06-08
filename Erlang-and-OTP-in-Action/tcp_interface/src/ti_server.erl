@@ -4,30 +4,22 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 31 May 2011 by Kong Fanbin <kfbuniversity@gmail.com>
+%%% Created :  7 Jun 2011 by Kong Fanbin <kfbuniversity@gmail.com>
 %%%-------------------------------------------------------------------
--module(sc_element).
+-module(ti_server).
 
 -behaviour(gen_server).
 
 %% API
--export([
-	 start_link/2,
-	 create/2,
-	 create/1,
-	 fetch/1,
-	 replace/2,
-	 delete/1
-	]).
+-export([start_link/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE). 
--define(DEFAULT_LEASE_TIME, (60 * 60 * 24)).
 
--record(state, {value, lease_time, start_time}).
+-record(state, {lsock}).
 
 %%%===================================================================
 %%% API
@@ -40,23 +32,8 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(Value, LeaseTime) ->
-    gen_server:start_link(?MODULE, [Value, LeaseTime], []).
-
-create(Value, LeaseTime) ->
-    sc_element_sup:start_child(Value, LeaseTime).
-
-create(Value) ->
-    create(Value, ?DEFAULT_LEASE_TIME).
-
-fetch(Pid) ->
-    gen_server:call(Pid, fetch).
-
-replace(Pid, Value) ->
-    gen_server:cast(Pid, {replace, Value}).
-
-delete(Pid) ->
-    gen_server:cast(Pid, delete).
+start_link(LSock) ->
+    gen_server:start_link(?MODULE, [LSock], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -67,32 +44,14 @@ delete(Pid) ->
 %% @doc
 %% Initializes the server
 %%
-%% @spec init([Value, LeaseTime]) -> {ok, State} |
+%% @spec init(Args) -> {ok, State} |
 %%                     {ok, State, Timeout} |
 %%                     ignore |
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([Value, LeaseTime]) ->
-    Now = calendar:local_time(),
-    StartTime = calendar:datetime_to_gregorian_seconds(Now),
-    {ok, #state{value = Value,
-	       lease_time = LeaseTime,
-	       start_time = StartTime},
-       time_left(StartTime, LeaseTime)}.
-
-time_left(_StartTime, infinity) ->
-    infinity;
-time_left(StartTime, LeaseTime) ->
-    Now = calendar:local_time(),
-    CurrentTime = calendar:datetime_to_gregorian_seconds(Now),
-    TimeElapsed = CurrentTime - StartTime,
-    case LeaseTime - TimeElapsed of
-	Time when Time =< 0 -> 0;
-	Time  -> Time * 1000
-    end.
-	    
-
+init([LSock]) ->
+    {ok, #state{lsock = LSock}, 0}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -108,12 +67,9 @@ time_left(StartTime, LeaseTime) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call(fetch, _From, State) ->
-    #state{value = Value,
-	       lease_time = LeaseTime,
-	       start_time = StartTime} = State,
-    TimeLeft = time_left(StartTime, LeaseTime),
-    {reply, {ok, Value}, State, TimeLeft}.
+handle_call(_Request, _From, State) ->
+    Reply = ok,
+    {reply, Reply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -125,16 +81,8 @@ handle_call(fetch, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({replace, Value}, State) ->
-    #state{lease_time = LeaseTime,
-	   start_time = StartTime} = State,
-    TimeLeft = time_left(StartTime, LeaseTime),
-    %% 当 replace 替代时是否应该重新计算数据有效时间? 像这样：
-    %% {noreply, State#state{value = Value}, LeaseTime}
-    {noreply, State#state{value = Value}, TimeLeft};
-handle_cast(delete, State) ->
-    {stop, normal, State}.
-
+handle_cast(_Msg, State) ->
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -147,9 +95,16 @@ handle_cast(delete, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_info(timeout, State) ->
-    #state{value = Value} = State,
-    simple_cache:timeout(self(), Value),
+    {ok, _Socket} = gen_tcp:accept(State#state.lsock),
+    ti_sup:start_child(),
+    {noreply, State};
+handle_info({tcp, Socket, Data}, State) ->
+    NewState = handle_data(Socket, Data, State),
+    {noreply, NewState};
+handle_info({tcp_closed, _Socket}, State) ->
     {stop, normal, State}.
+
+    
 
 %%--------------------------------------------------------------------
 %% @private
@@ -163,7 +118,6 @@ handle_info(timeout, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, _State) ->
-    sc_store:delete(self()),
     ok.
 
 %%--------------------------------------------------------------------
@@ -180,3 +134,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+handle_data(Socket, Data, State) ->
+    try
+	{Function, RawArgs} = lists:splitwith(fun(C) -> C =/= $[ end, Data),
+	{ok, Tokens, _End} = erl_scan:string(RawArgs, 1),
+	{ok, ArgList} = erl_parse:parse_term(Tokens),
+	Result = apply(simple_cache, list_to_atom(Function), ArgList),
+	gen_tcp:send(Socket, io_lib:fwrite("OK:~p~n", [Result]))
+    catch
+	_Class:Err ->
+	    gen_tcp:send(Socket, io_lib:fwrite("ERROR:~p~n", [Err]))
+    end,
+    State.
